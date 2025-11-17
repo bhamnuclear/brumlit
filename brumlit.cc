@@ -1,3 +1,4 @@
+void Transport(double,double);
 TGraph *gXS_0 = new TGraph("XS_0.txt");
 TGraph *gXS_1 = new TGraph("XS_1.txt");
 TGraph *gstopping = new TGraph("stopping_power.txt");
@@ -7,10 +8,10 @@ TGraph *gA0p,*gA1p,*gA2p;
 TRandom3 *rndm = new TRandom3();
 double d2r=atan(1.)/45.;
 double pi=4.*atan(1.);
-double mp=1.007825;
+double mp=1.007276;
 double mn=1.008665;
-double mLi=7.016004;
-double mBe=7.016929;
+double mLi=7.01435712;//Nuclear
+double mBe=7.01473382;//Nuclear
 double amu=931.4941;
 double Q=-1.64424;
 double max_depth = 0.2;//mm
@@ -21,15 +22,17 @@ double Eloss(double,double);
 double ConvertCMtoLab(double Eint,double thetaCM);
 double NeutronEnergy(double Eint, double thetalab, double thetaCM);
 double Einitial=2.6;//MeV
-double Eth=1.8804 ;//Threshold energy
+double Eth=1.88035 ;//Threshold energy
 double thetaCM,thetalab;
 TH1F *h1 = new TH1F("h1","",800,1.8,2.6);
 TH1F *hEn = new TH1F("hEn",";Neutron Energy [MeV];Yield",1000,0.0,1.0);
 TH1F *hEn_source = new TH1F("hEn_source","",1000,0.0,1.0);
 TH1F *hth = new TH1F("hth","",1800,0.0,180);
-TH2F *hEth = new TH2F("hEth","",180,0,180,1000,0,1.);
+TH2F *hEth = new TH2F("hEth","",1800,0,180,1000,0,1.);
 TH2F *hEthCM = new TH2F("hEthCM","",180,0,180,1000,0,1.);
 TH2F *hthth = new TH2F("hthth","COM vs lab",1800,0,180,1800,0,180);
+TH2F *hbob = new TH2F("hbob","En vs Ep",1000,0,1,200,1.88,1.98);
+TH2F *hfluence = new TH2F("hfluence","Flux vs pos at foil;Pos x [mm];Pos y [mm]",100,-100,100,100,-100,100);
 bool secondks=false;
 bool excited=false;
 void brumlit() {
@@ -40,19 +43,24 @@ void brumlit() {
 		//Sample Ep_interaction
 		double Eint = InteractionE(Einitial);
 		h1->Fill(Eint);
+//		Eint=1.912;
 		//Sample theta CM
 		thetaCM = InteractionTheta(Eint);
 		if(thetaCM==0) continue;//Skip this guy?
 		thetalab = ConvertCMtoLab(Eint,thetaCM);
-		hth->Fill((thetalab/d2r));
+		hth->Fill((thetalab/d2r),1./sin(thetalab));
 		double En = NeutronEnergy(Eint,thetalab,thetaCM);
 		if(En==0) continue;//Skip this guy
 //		if(!excited) continue;
 		hthth->Fill(thetaCM/d2r,thetalab/d2r);
-		hEn->Fill(En);
+		if(thetalab/d2r<1) {
+			hEn->Fill(En);
+			hbob->Fill(En,Eint);
+		}
 		hEth->Fill(thetalab/d2r,En);
 //		if(!secondks)hEth->Fill(thetalab/d2r,En);
 		hEthCM->Fill(thetaCM/d2r,En);
+		if(fabs(thetaCM)<pi) Transport(En,thetalab);
 	}
 	TCanvas *c = new TCanvas();
 	hth->Draw();
@@ -64,10 +72,21 @@ void brumlit() {
 	}
 	hEn_source->Scale(hEn->Integral(0,1000)/hEn_source->Integral(0,1000));
 	hEn_source->SetLineColor(kRed);
-	hEn_source->Draw("HISTSAME");
+//	hEn_source->Draw("HISTSAME");
 	TLegend *leg = new TLegend(0.7,0.9,0.7,0.9);
 	leg->AddEntry(hEn,"BrumLiT");
-	leg->AddEntry(hEn_source,"Rendimiento");
+//	leg->AddEntry(hEn_source,"Rendimiento");
+	TF1 *f25 = new TF1("f25","[0]*x*TMath::Exp(-x/0.025)",0,1);
+	f25->SetParameter(0,1.7e6);
+//	f25->Draw("SAME");
+//	hEn->Fit(f25);
+//	leg->AddEntry(f25,"kT = 25 keV");
+	TF1 *f30 = new TF1("f30","[0]*x*TMath::Exp(-x/0.03)",0,1);
+	f30->SetParameter(0,1.3e6);
+//	f30->Draw("SAME");
+	f30->SetLineColor(kMagenta);
+//	hEn->Fit(f25);
+//	leg->AddEntry(f30,"kT = 30 keV");
 	leg->Draw("SAME");
 	TCanvas *c3 = new TCanvas();
 	c3->Divide(2,1);
@@ -82,6 +101,10 @@ void brumlit() {
 	gXS_t->Draw();
 	TCanvas *c6 = new TCanvas();
 	h1->Draw();
+	TCanvas *c7 = new TCanvas();
+	hbob->Draw();
+	TCanvas *c8 = new TCanvas();
+	hfluence->Draw("COLZ");
 }
 
 double InteractionE(double Ep) {
@@ -102,6 +125,10 @@ double InteractionE(double Ep) {
 			double A=164.913;//mb MeV/sr
 			double x=C0*sqrt(1-Eth/energy);
 			XS=4.*pi*(A*x)/(energy*(1+x)*(1+x));
+			double softness = 0.0001;
+		//	cout<<energy<<"\t"<<XS<<"\t";
+			//XS*=TMath::TanH((energy-Eth)/softness);//FUDGE!
+		//	cout<<XS<<endl;
 		}
 //		cout<<energy<<"\t"<<XS<<endl;
 //		cout<<loopcounter<<"\t"<<energy<<"\t"<<XS<<"\t"<<trial_z<<"\t"<<XSmax<<endl;
@@ -252,8 +279,9 @@ double NeutronEnergy(double Ep, double theta, double thetaCM) {//Get neutron ene
 	double Ex=0;
 	if(excited) Ex=0.431;//MeV
 	double ECM = mLi*Ep/(mLi+mp)+Q-Ex;
-	if(ECM<0) {
-		cout<<"Below threshold! Something is wrong!"<<endl;
+	double dlose=0;//MeV
+	if(ECM<dlose) {
+//		cout<<"Below threshold! Something is wrong!"<<endl;
 		return 0;
 	}
 	double p_nT = sqrt(2.*ECM*mn*(mBe/(mn+mBe)));
@@ -266,4 +294,30 @@ double NeutronEnergy(double Ep, double theta, double thetaCM) {//Get neutron ene
 	En = En_new;
 	theta = acos(pn[2]/p_nT);
 	return En;
+}
+
+
+void Transport(double En, double thetalab) {
+	//Send neutron into space to hit an object
+	double FWHM=39;//mm of beam FWHM
+	double sigma = FWHM/2.35;
+	double zdistance = 50;//mm from target
+	double xpos = rndm->Gaus(0,sigma);
+	double ypos = rndm->Gaus(0,sigma);
+	double max_r = 50;//mm
+	double radius = rndm->Rndm()*max_r;
+	while(radius < rndm->Rndm()*max_r) {
+		radius = rndm->Rndm()*max_r;
+	}
+	double phi = rndm->Rndm()*2*pi;
+//	xpos = radius*cos(phi);//Use uniform disk sampling
+//	ypos = radius*sin(phi);
+//	cout<<thetalab<<endl;
+	phi = rndm->Rndm()*2*pi; //Need a different phi (for the neutron direction, not origin)
+	double vector[3] = {sin(thetalab)*cos(phi),sin(thetalab)*sin(phi),cos(thetalab)};
+//	cout<<vector[0]<<"\t"<<vector[1]<<"\t"<<vector[2]<<endl;
+	double xhit = xpos + vector[0]*zdistance/vector[2];
+	double yhit = ypos + vector[1]*zdistance/vector[2];
+	hfluence->Fill(xhit,yhit);
+	return;
 }
